@@ -1,11 +1,19 @@
-from flask import Flask
-from flask import request
+import json
+
+from flask import Flask, request, jsonify
+from dotenv import load_dotenv
+from analyze import example
+import os
+
+load_dotenv()
 
 app = Flask(__name__)
 
+
 @app.post("/")
-def hello_world():
+def calculate_nutrients():
     requestObj = request.get_json()
-    print(requestObj['name'])
-    print(requestObj['password'])
-    return "<p>Hello, Chandrababu Gowda</p>"
+    image_key = requestObj['name']
+    result = example(os.getenv('AWS_BUCKET_NAME'), image_key, os.getenv('AWS_ACCESS_KEY_ID'),
+                     os.getenv('AWS_SECRET_ACCESS_KEY'))
+    return jsonify(json.loads(result))
