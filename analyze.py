@@ -12,7 +12,7 @@ np.set_printoptions(suppress=True)
 
 def example(bucket_name, image_key, aws_access_key_id, aws_secret_access_key):
     # Load the model
-    keras_model = tensorflow.keras.models.load_model('b-h-1000.h5', compile=False)
+    keras_model = tensorflow.keras.models.load_model('./model_files/b-h-1000.h5', compile=False)
     keras_model._name = 'model1'
 
     classes1 = ["Boron", "Healthy"]
