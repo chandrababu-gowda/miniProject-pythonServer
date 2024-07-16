@@ -1,8 +1,8 @@
 import tensorflow.keras
 import tensorflow as tf
-from PIL import Image, ImageOps
+from PIL import Image
 import numpy as np
-from keras._tf_keras.keras.preprocessing.image import img_to_array
+from tensorflow.keras.preprocessing.image import img_to_array
 import boto3
 import io
 import json
@@ -10,40 +10,23 @@ import json
 # Disable scientific notation for clarity
 np.set_printoptions(suppress=True)
 
-def example(bucket_name, image_key, aws_access_key_id, aws_secret_access_key):
-    # Load the model
-    keras_model = tensorflow.keras.models.load_model('b-h-1000.h5', compile=False)
-    keras_model._name = 'model1'
+# Load models once, outside of the prediction function
+model_paths = {
+    "Boron": 'b-h-1000.h5',
+    "Calcium": 'ca-h-500.h5',
+    "Iron": 'fe-h-1000.h5',
+    "Potassium": 'k-h-500.h5',
+}
+models = {element: tensorflow.keras.models.load_model(path, compile=False) for element, path in model_paths.items()}
 
-    classes1 = ["Boron", "Healthy"]
 
-    temp = {}
-    # Download image from S3
-    image = download_image_from_s3(bucket_name, image_key, aws_access_key_id, aws_secret_access_key)
-    # Convert image to NumPy array and resize to (150, 150)
+def load_and_predict(image, model, classes):
     image = img_to_array(image)
     image = tf.image.resize(image, (150, 150))
     image = image / 255.0
+    proba = model.predict(image.numpy().reshape(1, 150, 150, 3))
+    return {classes[i]: float(proba[0][i]) for i in range(min(len(classes), proba.shape[1]))}
 
-    proba1 = keras_model.predict(image.numpy().reshape(1, 150, 150, 3))
-    top_3 = np.argsort(proba1[0])[:-4:-1]
-    for i in range(2):
-        temp[classes1[top_3[i]]] = proba1[0][top_3[i]]
-
-    pr = []
-    cn = []
-
-    for k, v in temp.items():
-        pr.append(v)
-        cn.append(k)
-
-        if v == max(temp.values()):
-            deficiency = k
-
-    result = {cn[i]: float(pr[i]) for i in range(2)}
-    result['Deficiency'] = deficiency
-
-    return json.dumps(result)
 
 def download_image_from_s3(bucket_name, image_key, aws_access_key_id, aws_secret_access_key):
     s3 = boto3.client('s3',
@@ -53,3 +36,35 @@ def download_image_from_s3(bucket_name, image_key, aws_access_key_id, aws_secret
     image_data = image_obj['Body'].read()
     image = Image.open(io.BytesIO(image_data))
     return image
+
+
+def example(bucket_name, image_key, aws_access_key_id, aws_secret_access_key):
+    image = download_image_from_s3(bucket_name, image_key, aws_access_key_id, aws_secret_access_key)
+
+    results = {}
+    deficiencies = []
+
+    for deficiency, model in models.items():
+        classes = ["Deficient", "Healthy"]
+        element_predictions = load_and_predict(image, model, classes)
+
+        result_deficiency = max(element_predictions, key=element_predictions.get)
+        confidence = max(element_predictions.values())
+
+        results[deficiency] = {
+            "Deficient": float(element_predictions["Deficient"]),
+            "Healthy": float(element_predictions["Healthy"]),
+            "Deficiency": result_deficiency
+        }
+        deficiencies.append((deficiency, result_deficiency, confidence))
+
+    # Determine the most likely deficiency
+    most_likely_deficiency = max(deficiencies, key=lambda item: item[2])
+
+    results['Most_Likely_Deficiency'] = {
+        'Type': most_likely_deficiency[0],
+        'Health_Status': most_likely_deficiency[1],
+        'Confidence': float(most_likely_deficiency[2])
+    }
+
+    return json.dumps(results)
